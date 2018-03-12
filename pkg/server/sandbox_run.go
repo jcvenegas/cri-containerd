@@ -48,6 +48,32 @@ func init() {
 		"github.com/containerd/cri-containerd/pkg/store/sandbox", "Metadata")
 }
 
+// privilegedSandbox returns true if the sandbox configuration
+// requires additional host privileges for the sandbox.
+func (c *criContainerdService) privilegedSandbox(req *runtime.RunPodSandboxRequest) bool {
+	securityContext := req.GetConfig().GetLinux().GetSecurityContext()
+	if securityContext == nil {
+		return false
+	}
+
+	if securityContext.Privileged {
+		return true
+	}
+
+	namespaceOptions := securityContext.GetNamespaceOptions()
+	if namespaceOptions == nil {
+		return false
+	}
+
+	if namespaceOptions.Network == runtime.NamespaceMode_NODE ||
+		namespaceOptions.Pid == runtime.NamespaceMode_NODE ||
+		namespaceOptions.Ipc == runtime.NamespaceMode_NODE {
+		return true
+	}
+
+	return false
+}
+
 // RunPodSandbox creates and starts a pod-level sandbox. Runtimes should ensure
 // the sandbox is in ready state.
 func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.RunPodSandboxRequest) (_ *runtime.RunPodSandboxResponse, retErr error) {
@@ -150,6 +176,15 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 		sandbox.IP = ip
 	}
 
+	trusted := c.privilegedSandbox(r)
+	containerRuntime := c.getRuntime(trusted)
+
+	if sandbox.Config.Annotations == nil {
+		sandbox.Config.Annotations = make(map[string]string)
+	}
+
+	sandbox.Config.Annotations[annotations.PrivilegedSandbox] = fmt.Sprintf("%v", trusted)
+
 	// Create sandbox container.
 	spec, err := c.generateSandboxContainerSpec(id, config, &image.ImageSpec.Config, sandbox.NetNSPath)
 	if err != nil {
@@ -182,10 +217,10 @@ func (c *criContainerdService) RunPodSandbox(ctx context.Context, r *runtime.Run
 		containerd.WithContainerLabels(sandboxLabels),
 		containerd.WithContainerExtension(sandboxMetadataExtension, &sandbox.Metadata),
 		containerd.WithRuntime(
-			c.config.ContainerdConfig.Runtime,
+			containerRuntime.name,
 			&runctypes.RuncOptions{
-				Runtime:       c.config.ContainerdConfig.RuntimeEngine,
-				RuntimeRoot:   c.config.ContainerdConfig.RuntimeRoot,
+				Runtime:       containerRuntime.engine,
+				RuntimeRoot:   containerRuntime.root,
 				SystemdCgroup: c.config.SystemdCgroup})} // TODO (mikebrow): add CriuPath when we add support for pause
 
 	container, err := c.client.NewContainer(ctx, id, opts...)

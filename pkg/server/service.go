@@ -253,3 +253,29 @@ func (c *criContainerdService) Close() error {
 func imageFSPath(rootDir, snapshotter string) string {
 	return filepath.Join(rootDir, fmt.Sprintf("%s.%s", plugin.SnapshotPlugin, snapshotter))
 }
+
+// runtimeInfo is the information about a runtime for container creation
+type runtimeInfo struct {
+	name   string
+	engine string
+	root   string
+}
+
+// getRuntime returns the runtime configuration
+// If the container is privileged, it will return
+// the privileged runtime else not.
+func (c *criContainerdService) getRuntime(privileged bool) (runtime runtimeInfo) {
+	runtime.name = c.config.ContainerdConfig.Runtime
+	runtime.engine = c.config.ContainerdConfig.RuntimeEngine
+	runtime.root = c.config.ContainerdConfig.RuntimeRoot
+
+	if privileged && c.config.ContainerdConfig.TrustedRuntimeEngine != "" {
+		runtime.name = c.config.ContainerdConfig.TrustedRuntime
+		runtime.engine = c.config.ContainerdConfig.TrustedRuntimeEngine
+		runtime.root = c.config.ContainerdConfig.TrustedRuntimeRoot
+	}
+
+	logrus.Debugf("runtime=%s(%s), runtime root='%s', privileged='%v'", runtime.name, runtime.engine, runtime.root, privileged)
+
+	return runtime
+}

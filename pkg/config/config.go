@@ -32,6 +32,24 @@ type ContainerdConfig struct {
 	// RuntimeRoot is the directory used by containerd for runtime state.
 	// Containerd default should be "/run/containerd/runc"
 	RuntimeRoot string `toml:"runtime_root" json:"runtimeRoot,omitempty"`
+
+	// Trusted runtime options.
+
+	// TrustedRuntime (optional) is the runtime to use for trusted
+	// workloads with containerd.
+	// If not specified will be set to the same value as Runtime
+	TrustedRuntime string `toml:"trustedRuntime" json:"trustedRuntime,omitempty"`
+	// TrustedRuntimeEngine is the name of the runtime engine used by containerd
+	// to run trusted workloads.
+	// Containerd default should be "runc"
+	// Useful to use along with runtimes that provide higher security
+	// level (e.g. kata-containers).
+	// This option will be used to launch containers that require
+	// provileged operations, otherwise the runtime to be use will be RuntimeEngine.
+	TrustedRuntimeEngine string `toml:"trustedRuntimeEngine" json:"trustedRuntimeEngine,omitempty"`
+	// TrustedRuntimeRoot is the directory used by containerd for trusted runtime state.
+	// Containerd default should be "/run/containerd/runc"
+	TrustedRuntimeRoot string `toml:"trustedRuntimeRoot" json:"trustedRuntimeRoot,omitempty"`
 }
 
 // CniConfig contains toml config related to cni
