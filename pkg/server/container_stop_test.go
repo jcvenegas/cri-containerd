@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/net/context"
 
-	containerstore "github.com/containerd/cri-containerd/pkg/store/container"
+	containerstore "github.com/containerd/cri/pkg/store/container"
 )
 
 func TestWaitContainerStop(t *testing.T) {
@@ -61,7 +61,7 @@ func TestWaitContainerStop(t *testing.T) {
 			expectErr: false,
 		},
 	} {
-		c := newTestCRIContainerdService()
+		c := newTestCRIService()
 		container, err := containerstore.NewContainer(
 			containerstore.Metadata{ID: id},
 			containerstore.WithFakeStatus(*test.status),

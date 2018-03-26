@@ -38,13 +38,10 @@ destdir=${BUILD_DIR}/release-stage
 rm -rf ${destdir}
 
 # Install dependencies into release stage.
-NOSUDO=true INSTALL_CNI=${INCLUDE_CNI} DESTDIR=${destdir} ./hack/install-deps.sh
-
-# Install ctrcri into release stage.
-make install-ctrcri -e DESTDIR=${destdir}
+NOSUDO=true INSTALL_CNI=${INCLUDE_CNI} DESTDIR=${destdir} ./hack/install/install-deps.sh
 
 if ${CUSTOM_CONTAINERD}; then
-  make install-containerd -e DESTDIR=${destdir}
+  make install -e DESTDIR=${destdir}
 fi
 
 # Install systemd units into release stage.

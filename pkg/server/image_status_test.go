@@ -25,7 +25,7 @@ import (
 	"golang.org/x/net/context"
 	runtime "k8s.io/kubernetes/pkg/kubelet/apis/cri/runtime/v1alpha2"
 
-	imagestore "github.com/containerd/cri-containerd/pkg/store/image"
+	imagestore "github.com/containerd/cri/pkg/store/image"
 )
 
 func TestImageStatus(t *testing.T) {
@@ -50,7 +50,7 @@ func TestImageStatus(t *testing.T) {
 		Username:    "user",
 	}
 
-	c := newTestCRIContainerdService()
+	c := newTestCRIService()
 	t.Logf("should return nil image spec without error for non-exist image")
 	resp, err := c.ImageStatus(context.Background(), &runtime.ImageStatusRequest{
 		Image: &runtime.ImageSpec{Image: testID},

@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	runtime "k8s.io/kubernetes/pkg/kubelet/apis/cri/runtime/v1alpha2"
 
-	sandboxstore "github.com/containerd/cri-containerd/pkg/store/sandbox"
+	sandboxstore "github.com/containerd/cri/pkg/store/sandbox"
 )
 
 func TestToCRISandbox(t *testing.T) {
@@ -75,7 +75,7 @@ func TestToCRISandbox(t *testing.T) {
 }
 
 func TestFilterSandboxes(t *testing.T) {
-	c := newTestCRIContainerdService()
+	c := newTestCRIService()
 	sandboxes := []sandboxstore.Sandbox{
 		sandboxstore.NewSandbox(
 			sandboxstore.Metadata{

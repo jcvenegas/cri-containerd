@@ -18,20 +18,24 @@ package config
 
 import "github.com/containerd/containerd"
 
+// Runtime  struct to contain the type(ID), engine, and root variables for a default and a privileged runtime
+type Runtime struct {
+	//Type is the runtime type to use in containerd e.g. io.containerd.runtime.v1.linux
+	Type string `toml:"runtime_type" json:"runtimeType,omitempty"`
+	// Engine is the name of the runtime engine used by containerd.
+	Engine string `toml:"runtime_engine" json:"runtimeEngine,omitempty"`
+	// Root is the directory used by containerd for runtime state.
+	Root string `toml:"runtime_root" json:"runtimeRoot,omitempty"`
+}
+
 // ContainerdConfig contains toml config related to containerd
 type ContainerdConfig struct {
 	// Snapshotter is the snapshotter used by containerd.
 	Snapshotter string `toml:"snapshotter" json:"snapshotter,omitempty"`
-	// Runtime is the runtime to use in containerd. We may support
-	// other runtimes in the future.
-	Runtime string `toml:"runtime" json:"runtime,omitempty"`
-	// RuntimeEngine is the name of the runtime engine used by containerd.
-	// Containerd default should be "runc"
-	// We may support other runtime engines in the future.
-	RuntimeEngine string `toml:"runtime_engine" json:"runtimeEngine,omitempty"`
-	// RuntimeRoot is the directory used by containerd for runtime state.
-	// Containerd default should be "/run/containerd/runc"
-	RuntimeRoot string `toml:"runtime_root" json:"runtimeRoot,omitempty"`
+	// DefaultRuntime is the runtime to use in containerd.
+	DefaultRuntime Runtime `toml:"default_runtime" json:"defaultRuntime,omitempty"`
+	// PrivilegedRuntime is a non-secure runtime used only to run trusted workloads on it
+	PrivilegedRuntime Runtime `toml:"privileged_runtime" json:"privilegedRuntime,omitempty"`
 }
 
 // CniConfig contains toml config related to cni
@@ -78,9 +82,6 @@ type PluginConfig struct {
 	StatsCollectPeriod int `toml:"stats_collect_period" json:"statsCollectPeriod,omitempty"`
 	// SystemdCgroup enables systemd cgroup support.
 	SystemdCgroup bool `toml:"systemd_cgroup" json:"systemdCgroup,omitempty"`
-	// EnableIPv6DAD enables IPv6 DAD.
-	// TODO(random-liu): Use optimistic_dad when it's GA.
-	EnableIPv6DAD bool `toml:"enable_ipv6_dad" json:"enableIPv6DAD,omitempty"`
 }
 
 // Config contains all configurations for cri server.
@@ -91,7 +92,7 @@ type Config struct {
 	ContainerdRootDir string `json:"containerdRootDir,omitempty"`
 	// ContainerdEndpoint is the containerd endpoint path.
 	ContainerdEndpoint string `json:"containerdEndpoint,omitempty"`
-	// RootDir is the root directory path for managing cri-containerd files
+	// RootDir is the root directory path for managing cri plugin files
 	// (metadata checkpoint etc.)
 	RootDir string `json:"rootDir,omitempty"`
 }
@@ -104,10 +105,17 @@ func DefaultConfig() PluginConfig {
 			NetworkPluginConfDir: "/etc/cni/net.d",
 		},
 		ContainerdConfig: ContainerdConfig{
-			Snapshotter:   containerd.DefaultSnapshotter,
-			Runtime:       "io.containerd.runtime.v1.linux",
-			RuntimeEngine: "",
-			RuntimeRoot:   "",
+			Snapshotter: containerd.DefaultSnapshotter,
+			DefaultRuntime: Runtime{
+				Type:   "io.containerd.runtime.v1.linux",
+				Engine: "",
+				Root:   "",
+			},
+			PrivilegedRuntime: Runtime{
+				Type:   "io.containerd.runtime.v1.linux",
+				Engine: "",
+				Root:   "",
+			},
 		},
 		StreamServerAddress: "",
 		StreamServerPort:    "10010",
@@ -115,7 +123,6 @@ func DefaultConfig() PluginConfig {
 		SandboxImage:        "gcr.io/google_containers/pause:3.0",
 		StatsCollectPeriod:  10,
 		SystemdCgroup:       false,
-		EnableIPv6DAD:       false,
 		Registry: Registry{
 			Mirrors: map[string]Mirror{
 				"docker.io": {

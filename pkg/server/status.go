@@ -21,41 +21,34 @@ import (
 	"fmt"
 	goruntime "runtime"
 
+	cni "github.com/containerd/go-cni"
 	"golang.org/x/net/context"
 	runtime "k8s.io/kubernetes/pkg/kubelet/apis/cri/runtime/v1alpha2"
 )
 
-const (
-	// runtimeNotReadyReason is the reason reported when runtime is not ready.
-	runtimeNotReadyReason = "ContainerdNotReady"
-	// networkNotReadyReason is the reason reported when network is not ready.
-	networkNotReadyReason = "NetworkPluginNotReady"
-)
+// networkNotReadyReason is the reason reported when network is not ready.
+const networkNotReadyReason = "NetworkPluginNotReady"
 
 // Status returns the status of the runtime.
-func (c *criContainerdService) Status(ctx context.Context, r *runtime.StatusRequest) (*runtime.StatusResponse, error) {
+func (c *criService) Status(ctx context.Context, r *runtime.StatusRequest) (*runtime.StatusResponse, error) {
+	// As a containerd plugin, if CRI plugin is serving request,
+	// containerd must be ready.
 	runtimeCondition := &runtime.RuntimeCondition{
 		Type:   runtime.RuntimeReady,
 		Status: true,
-	}
-	serving, err := c.client.IsServing(ctx)
-	if err != nil || !serving {
-		runtimeCondition.Status = false
-		runtimeCondition.Reason = runtimeNotReadyReason
-		if err != nil {
-			runtimeCondition.Message = fmt.Sprintf("Containerd healthcheck returns error: %v", err)
-		} else {
-			runtimeCondition.Message = "Containerd grpc server is not serving"
-		}
 	}
 	networkCondition := &runtime.RuntimeCondition{
 		Type:   runtime.NetworkReady,
 		Status: true,
 	}
+	// Check the status of the cni initialization
 	if err := c.netPlugin.Status(); err != nil {
-		networkCondition.Status = false
-		networkCondition.Reason = networkNotReadyReason
-		networkCondition.Message = fmt.Sprintf("Network plugin returns error: %v", err)
+		// If it is not initialized, then load the config and retry
+		if err = c.netPlugin.Load(cni.WithLoNetwork(), cni.WithDefaultConf()); err != nil {
+			networkCondition.Status = false
+			networkCondition.Reason = networkNotReadyReason
+			networkCondition.Message = fmt.Sprintf("Network plugin returns error: %v", err)
+		}
 	}
 
 	resp := &runtime.StatusResponse{

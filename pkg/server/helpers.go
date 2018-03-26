@@ -19,7 +19,6 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -35,13 +34,15 @@ import (
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/opencontainers/selinux/go-selinux/label"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	runtime "k8s.io/kubernetes/pkg/kubelet/apis/cri/runtime/v1alpha2"
-	"k8s.io/kubernetes/pkg/util/sysctl"
 
-	"github.com/containerd/cri-containerd/pkg/store"
-	imagestore "github.com/containerd/cri-containerd/pkg/store/image"
-	"github.com/containerd/cri-containerd/pkg/util"
+	criconfig "github.com/containerd/cri/pkg/config"
+	"github.com/containerd/cri/pkg/store"
+	imagestore "github.com/containerd/cri/pkg/store/image"
+	"github.com/containerd/cri/pkg/util"
 )
 
 const (
@@ -109,6 +110,14 @@ const (
 	containerMetadataExtension = criContainerdPrefix + ".container.metadata"
 )
 
+const (
+	// defaultIfName is the default network interface for the pods
+	defaultIfName = "eth0"
+	// networkAttachCount is the minimum number of networks the PodSandbox
+	// attaches to
+	networkAttachCount = 2
+)
+
 // makeSandboxName generates sandbox name from sandbox metadata. The name
 // generated is unique as long as sandbox metadata is unique.
 func makeSandboxName(s *runtime.PodSandboxMetadata) string {
@@ -126,9 +135,9 @@ func makeSandboxName(s *runtime.PodSandboxMetadata) string {
 func makeContainerName(c *runtime.ContainerMetadata, s *runtime.PodSandboxMetadata) string {
 	return strings.Join([]string{
 		c.Name,      // 0
-		s.Name,      // 1: sandbox name
-		s.Namespace, // 2: sandbox namespace
-		s.Uid,       // 3: sandbox uid
+		s.Name,      // 1: pod name
+		s.Namespace, // 2: pod namespace
+		s.Uid,       // 3: pod uid
 		fmt.Sprintf("%d", c.Attempt), // 4
 	}, nameDelimiter)
 }
@@ -212,7 +221,7 @@ func getRepoDigestAndTag(namedRef reference.Named, digest imagedigest.Digest, sc
 
 // localResolve resolves image reference locally and returns corresponding image metadata. It returns
 // nil without error if the reference doesn't exist.
-func (c *criContainerdService) localResolve(ctx context.Context, refOrID string) (*imagestore.Image, error) {
+func (c *criService) localResolve(ctx context.Context, refOrID string) (*imagestore.Image, error) {
 	getImageID := func(refOrId string) string {
 		if _, err := imagedigest.Parse(refOrID); err == nil {
 			return refOrID
@@ -245,7 +254,7 @@ func (c *criContainerdService) localResolve(ctx context.Context, refOrID string)
 		if err == store.ErrNotExist {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to get image %q : %v", imageID, err)
+		return nil, errors.Wrapf(err, "failed to get image %q", imageID)
 	}
 	return &image, nil
 }
@@ -271,10 +280,10 @@ func getUserFromImage(user string) (*int64, string) {
 
 // ensureImageExists returns corresponding metadata of the image reference, if image is not
 // pulled yet, the function will pull the image.
-func (c *criContainerdService) ensureImageExists(ctx context.Context, ref string) (*imagestore.Image, error) {
+func (c *criService) ensureImageExists(ctx context.Context, ref string) (*imagestore.Image, error) {
 	image, err := c.localResolve(ctx, ref)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve image %q: %v", ref, err)
+		return nil, errors.Wrapf(err, "failed to resolve image %q", ref)
 	}
 	if image != nil {
 		return image, nil
@@ -282,13 +291,13 @@ func (c *criContainerdService) ensureImageExists(ctx context.Context, ref string
 	// Pull image to ensure the image exists
 	resp, err := c.PullImage(ctx, &runtime.PullImageRequest{Image: &runtime.ImageSpec{Image: ref}})
 	if err != nil {
-		return nil, fmt.Errorf("failed to pull image %q: %v", ref, err)
+		return nil, errors.Wrapf(err, "failed to pull image %q", ref)
 	}
 	imageID := resp.GetImageRef()
 	newImage, err := c.imageStore.Get(imageID)
 	if err != nil {
 		// It's still possible that someone removed the image right after it is pulled.
-		return nil, fmt.Errorf("failed to get image %q metadata after pulling: %v", imageID, err)
+		return nil, errors.Wrapf(err, "failed to get image %q metadata after pulling", imageID)
 	}
 	return &newImage, nil
 }
@@ -306,28 +315,28 @@ func getImageInfo(ctx context.Context, image containerd.Image) (*imageInfo, erro
 	// Get image information.
 	diffIDs, err := image.RootFS(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get image diffIDs: %v", err)
+		return nil, errors.Wrap(err, "failed to get image diffIDs")
 	}
 	chainID := identity.ChainID(diffIDs)
 
 	size, err := image.Size(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get image compressed resource size: %v", err)
+		return nil, errors.Wrap(err, "failed to get image compressed resource size")
 	}
 
 	desc, err := image.Config(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get image config descriptor: %v", err)
+		return nil, errors.Wrap(err, "failed to get image config descriptor")
 	}
 	id := desc.Digest.String()
 
 	rb, err := content.ReadBlob(ctx, image.ContentStore(), desc.Digest)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read image config from content store: %v", err)
+		return nil, errors.Wrap(err, "failed to read image config from content store")
 	}
 	var ociimage imagespec.Image
 	if err := json.Unmarshal(rb, &ociimage); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal image config %s: %v", rb, err)
+		return nil, errors.Wrapf(err, "failed to unmarshal image config %s", rb)
 	}
 
 	return &imageInfo{
@@ -392,34 +401,26 @@ func newSpecGenerator(spec *runtimespec.Spec) generate.Generator {
 	return g
 }
 
-// disableNetNSDAD disables duplicate address detection in the network namespace.
-// DAD has a negative affect on sandbox start latency, since we have to wait
-// a second or more for the addresses to leave the "tentative" state.
-func disableNetNSDAD(ns string) error {
-	dad := "net/ipv6/conf/default/accept_dad"
+func getPodCNILabels(id string, config *runtime.PodSandboxConfig) map[string]string {
+	return map[string]string{
+		"K8S_POD_NAMESPACE":          config.GetMetadata().GetNamespace(),
+		"K8S_POD_NAME":               config.GetMetadata().GetName(),
+		"K8S_POD_INFRA_CONTAINER_ID": id,
+		"IgnoreUnknown":              "1",
+	}
+}
 
-	sysctlBin, err := exec.LookPath("sysctl")
-	if err != nil {
-		return fmt.Errorf("could not find sysctl binary: %v", err)
+// getRuntime returns the runtime configuration
+// If the container is privileged, it will return
+// the privileged runtime else not.
+func (c *criService) getRuntime(privileged bool) (runtime criconfig.Runtime) {
+	runtime = c.config.ContainerdConfig.DefaultRuntime
+
+	if privileged && c.config.ContainerdConfig.PrivilegedRuntime.Engine != "" {
+		runtime = c.config.ContainerdConfig.PrivilegedRuntime
 	}
 
-	nsenterBin, err := exec.LookPath("nsenter")
-	if err != nil {
-		return fmt.Errorf("could not find nsenter binary: %v", err)
-	}
+	logrus.Debugf("runtime=%s(%s), runtime root='%s', privileged='%v'", runtime.Type, runtime.Engine, runtime.Root, privileged)
 
-	// If the sysctl doesn't exist, it means ipv6 is disabled.
-	if _, err := sysctl.New().GetSysctl(dad); err != nil {
-		return nil
-	}
-
-	output, err := exec.Command(nsenterBin,
-		fmt.Sprintf("--net=%s", ns), "-F", "--",
-		sysctlBin, "-w", fmt.Sprintf("%s=%s", dad, "0"),
-	).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to write sysctl %q - output: %s, error: %s",
-			dad, output, err)
-	}
-	return nil
+	return runtime
 }

@@ -20,17 +20,17 @@ import (
 	"os"
 	"testing"
 
-	"github.com/containerd/cri-containerd/pkg/annotations"
+	"github.com/containerd/cri/pkg/annotations"
+	cni "github.com/containerd/go-cni"
 	"github.com/containerd/typeurl"
-	"github.com/cri-o/ocicni/pkg/ocicni"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	runtime "k8s.io/kubernetes/pkg/kubelet/apis/cri/runtime/v1alpha2"
 
-	ostesting "github.com/containerd/cri-containerd/pkg/os/testing"
-	sandboxstore "github.com/containerd/cri-containerd/pkg/store/sandbox"
+	ostesting "github.com/containerd/cri/pkg/os/testing"
+	sandboxstore "github.com/containerd/cri/pkg/store/sandbox"
 )
 
 func getRunPodSandboxTestData() (*runtime.PodSandboxConfig, *imagespec.ImageConfig, func(*testing.T, string, *runtimespec.Spec)) {
@@ -152,7 +152,7 @@ func TestGenerateSandboxContainerSpec(t *testing.T) {
 		},
 	} {
 		t.Logf("TestCase %q", desc)
-		c := newTestCRIContainerdService()
+		c := newTestCRIService()
 		config, imageConfig, specCheck := getRunPodSandboxTestData()
 		if test.configChange != nil {
 			test.configChange(config)
@@ -261,7 +261,7 @@ options timeout:1
 		},
 	} {
 		t.Logf("TestCase %q", desc)
-		c := newTestCRIContainerdService()
+		c := newTestCRIService()
 		cfg := &runtime.PodSandboxConfig{
 			DnsConfig: test.dnsConfig,
 			Linux: &runtime.LinuxPodSandboxConfig{
@@ -331,7 +331,7 @@ options timeout:1
 func TestToCNIPortMappings(t *testing.T) {
 	for desc, test := range map[string]struct {
 		criPortMappings []*runtime.PortMapping
-		cniPortMappings []ocicni.PortMapping
+		cniPortMappings []cni.PortMapping
 	}{
 		"empty CRI port mapping should map to empty CNI port mapping": {},
 		"CRI port mapping should be converted to CNI port mapping properly": {
@@ -349,7 +349,7 @@ func TestToCNIPortMappings(t *testing.T) {
 					HostIp:        "126.125.124.123",
 				},
 			},
-			cniPortMappings: []ocicni.PortMapping{
+			cniPortMappings: []cni.PortMapping{
 				{
 					HostPort:      5678,
 					ContainerPort: 1234,
@@ -378,7 +378,7 @@ func TestToCNIPortMappings(t *testing.T) {
 					HostIp:        "126.125.124.123",
 				},
 			},
-			cniPortMappings: []ocicni.PortMapping{
+			cniPortMappings: []cni.PortMapping{
 				{
 					HostPort:      8765,
 					ContainerPort: 4321,
@@ -435,3 +435,58 @@ func TestTypeurlMarshalUnmarshalSandboxMeta(t *testing.T) {
 
 // TODO(random-liu): [P1] Add unit test for different error cases to make sure
 // the function cleans up on error properly.
+
+func TestPrivilegedSandbox(t *testing.T) {
+	privilegedContext := runtime.RunPodSandboxRequest{
+		Config: &runtime.PodSandboxConfig{
+			Linux: &runtime.LinuxPodSandboxConfig{
+				SecurityContext: &runtime.LinuxSandboxSecurityContext{
+					Privileged: true,
+				},
+			},
+		},
+	}
+	nonPrivilegedContext := runtime.RunPodSandboxRequest{
+		Config: &runtime.PodSandboxConfig{
+			Linux: &runtime.LinuxPodSandboxConfig{
+				SecurityContext: &runtime.LinuxSandboxSecurityContext{
+					Privileged: false,
+				},
+			},
+		},
+	}
+	hostNamespace := runtime.RunPodSandboxRequest{
+		Config: &runtime.PodSandboxConfig{
+			Linux: &runtime.LinuxPodSandboxConfig{
+				SecurityContext: &runtime.LinuxSandboxSecurityContext{
+					Privileged: false,
+					NamespaceOptions: &runtime.NamespaceOption{
+						Network: runtime.NamespaceMode_NODE,
+						Pid:     runtime.NamespaceMode_NODE,
+						Ipc:     runtime.NamespaceMode_NODE,
+					},
+				},
+			},
+		},
+	}
+	type args struct {
+		req *runtime.RunPodSandboxRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{"Security Context is nil", args{&runtime.RunPodSandboxRequest{}}, false},
+		{"Security Context is privileged", args{&privilegedContext}, true},
+		{"Security Context is not privileged", args{&nonPrivilegedContext}, false},
+		{"Security Context namespace host access", args{&hostNamespace}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := privilegedSandbox(tt.args.req); got != tt.want {
+				t.Errorf("privilegedSandbox() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

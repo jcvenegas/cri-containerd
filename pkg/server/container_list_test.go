@@ -25,8 +25,8 @@ import (
 	"golang.org/x/net/context"
 	runtime "k8s.io/kubernetes/pkg/kubelet/apis/cri/runtime/v1alpha2"
 
-	containerstore "github.com/containerd/cri-containerd/pkg/store/container"
-	sandboxstore "github.com/containerd/cri-containerd/pkg/store/sandbox"
+	containerstore "github.com/containerd/cri/pkg/store/container"
+	sandboxstore "github.com/containerd/cri/pkg/store/sandbox"
 )
 
 func TestToCRIContainer(t *testing.T) {
@@ -77,7 +77,7 @@ func TestToCRIContainer(t *testing.T) {
 }
 
 func TestFilterContainers(t *testing.T) {
-	c := newTestCRIContainerdService()
+	c := newTestCRIService()
 
 	testContainers := []*runtime.Container{
 		{
@@ -168,7 +168,7 @@ func (c containerForTest) toContainer() (containerstore.Container, error) {
 }
 
 func TestListContainers(t *testing.T) {
-	c := newTestCRIContainerdService()
+	c := newTestCRIService()
 	sandboxesInStore := []sandboxstore.Sandbox{
 		sandboxstore.NewSandbox(
 			sandboxstore.Metadata{

@@ -38,6 +38,13 @@ fetch_metadata() {
 
 # DEPLOY_PATH is the gcs path where cri-containerd tarball is stored.
 DEPLOY_PATH=${DEPLOY_PATH:-"cri-containerd-staging"}
+# DEPLOY_PATH_METADATA is the metadata key of DEPLOY_PATH.
+DEPLOY_PATH_METADATA="deploy-path"
+deploy_path=$(fetch_metadata "${DEPLOY_PATH_METADATA}")
+if [ ! -z "${deploy_path}" ]; then
+  DEPLOY_PATH=${deploy_path}
+fi
+
 # PULL_REFS_METADATA is the metadata key of PULL_REFS from prow.
 PULL_REFS_METADATA="PULL_REFS"
 pull_refs=$(fetch_metadata "${PULL_REFS_METADATA}")
@@ -50,7 +57,7 @@ fi
 # By default use the release tarball with cni built in.
 PKG_PREFIX=${PKG_PREFIX:-"cri-containerd-cni"}
 # PKG_PREFIX_METADATA is the metadata key of PKG_PREFIX.
-PKG_PREFIX_METADATA="pkg_prefix"
+PKG_PREFIX_METADATA="pkg-prefix"
 pkg_prefix=$(fetch_metadata "${PKG_PREFIX_METADATA}")
 if [ ! -z "${pkg_prefix}" ]; then
   PKG_PREFIX=${pkg_prefix}

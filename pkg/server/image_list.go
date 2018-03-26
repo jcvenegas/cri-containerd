@@ -20,13 +20,13 @@ import (
 	"golang.org/x/net/context"
 	runtime "k8s.io/kubernetes/pkg/kubelet/apis/cri/runtime/v1alpha2"
 
-	imagestore "github.com/containerd/cri-containerd/pkg/store/image"
+	imagestore "github.com/containerd/cri/pkg/store/image"
 )
 
 // ListImages lists existing images.
 // TODO(random-liu): Add image list filters after CRI defines this more clear, and kubelet
 // actually needs it.
-func (c *criContainerdService) ListImages(ctx context.Context, r *runtime.ListImagesRequest) (*runtime.ListImagesResponse, error) {
+func (c *criService) ListImages(ctx context.Context, r *runtime.ListImagesRequest) (*runtime.ListImagesResponse, error) {
 	imagesInStore := c.imageStore.List()
 
 	var images []*runtime.Image

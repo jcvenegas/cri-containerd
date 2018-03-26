@@ -17,10 +17,9 @@ limitations under the License.
 package server
 
 import (
-	"fmt"
-
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	runtime "k8s.io/kubernetes/pkg/kubelet/apis/cri/runtime/v1alpha2"
@@ -32,10 +31,10 @@ import (
 // TODO(random-liu): We should change CRI to distinguish image id and image spec.
 // Remove the whole image no matter the it's image id or reference. This is the
 // semantic defined in CRI now.
-func (c *criContainerdService) RemoveImage(ctx context.Context, r *runtime.RemoveImageRequest) (*runtime.RemoveImageResponse, error) {
+func (c *criService) RemoveImage(ctx context.Context, r *runtime.RemoveImageRequest) (*runtime.RemoveImageResponse, error) {
 	image, err := c.localResolve(ctx, r.GetImage().GetImage())
 	if err != nil {
-		return nil, fmt.Errorf("can not resolve %q locally: %v", r.GetImage().GetImage(), err)
+		return nil, errors.Wrapf(err, "can not resolve %q locally", r.GetImage().GetImage())
 	}
 	if image == nil {
 		// return empty without error when image not found.
@@ -49,14 +48,14 @@ func (c *criContainerdService) RemoveImage(ctx context.Context, r *runtime.Remov
 			if errdefs.IsNotFound(err) {
 				continue
 			}
-			return nil, fmt.Errorf("failed to get image %q: %v", tag, err)
+			return nil, errors.Wrapf(err, "failed to get image %q", tag)
 		}
 		desc, err := cImage.Config(ctx)
 		if err != nil {
 			// We can only get image id by reading Config from content.
 			// If the config is missing, we will fail to get image id,
 			// So we won't be able to remove the image forever,
-			// and cri-containerd always report the image is ok.
+			// and the cri plugin always reports the image is ok.
 			// But we also don't check it by manifest,
 			// It's possible that two manifest digests have the same image ID in theory.
 			// In theory it's possible that an image is compressed with different algorithms,
@@ -82,12 +81,12 @@ func (c *criContainerdService) RemoveImage(ctx context.Context, r *runtime.Remov
 		if err == nil || errdefs.IsNotFound(err) {
 			continue
 		}
-		return nil, fmt.Errorf("failed to delete image reference %q for image %q: %v", ref, image.ID, err)
+		return nil, errors.Wrapf(err, "failed to delete image reference %q for image %q", ref, image.ID)
 	}
 	// Delete image id synchronously to trigger garbage collection.
 	err = c.client.ImageService().Delete(ctx, image.ID, images.SynchronousDelete())
 	if err != nil && !errdefs.IsNotFound(err) {
-		return nil, fmt.Errorf("failed to delete image id %q: %v", image.ID, err)
+		return nil, errors.Wrapf(err, "failed to delete image id %q", image.ID)
 	}
 	c.imageStore.Delete(image.ID)
 	return &runtime.RemoveImageResponse{}, nil
